@@ -1253,7 +1253,8 @@ namespace OpenSim.Framework
         void SendViewerEffect(ViewerEffectPacket.EffectBlock[] effectBlocks);
 
         void SendAvatarProperties(UUID avatarID, string aboutText, string bornOn, Byte[] membershipType, string flAbout,
-                                  uint flags, UUID flImageID, UUID imageID, string profileURL, UUID partnerID);
+                                  uint flags, UUID flImageID, UUID imageID, string profileURL, UUID partnerID,
+                                  string customerType);
 
         void SendScriptQuestion(UUID taskID, string taskName, string ownerName, UUID itemID, int question, UUID experience);
         void SendHealth(float health);

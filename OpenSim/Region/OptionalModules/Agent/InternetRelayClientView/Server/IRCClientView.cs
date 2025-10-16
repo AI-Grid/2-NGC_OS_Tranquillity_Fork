@@ -1246,8 +1246,9 @@ namespace OpenSim.Region.OptionalModules.Agent.InternetRelayClientView.Server
         {
         }
 
-        public void SendAvatarProperties(UUID avatarID, string aboutText, string bornOn, byte[] membershipType, string flAbout, uint flags, UUID flImageID, UUID imageID, string profileURL, UUID partnerID)
+        public void SendAvatarProperties(UUID avatarID, string aboutText, string bornOn, byte[] membershipType, string flAbout, uint flags, UUID flImageID, UUID imageID, string profileURL, UUID partnerID, string customerType)
         {
+            _ = customerType;
 
         }
 

@@ -168,7 +168,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Profile
                                 "M/d/yyyy", CultureInfo.InvariantCulture),
                         membershipType, firstLifeAboutText,
                         (uint)(0 & 0xff),
-                        firstLifeImage, image, profileUrl, partner);
+                        firstLifeImage, image, profileUrl, partner, string.Empty);
 
             //Viewer expects interest data when it asks for properties.
             remoteClient.SendAvatarInterestsReply(avatarID, wantMask, wantText,

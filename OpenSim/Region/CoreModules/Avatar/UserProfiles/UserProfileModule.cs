@@ -158,7 +158,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
                             if (clients is null)
                             {
                                 client.SendAvatarProperties(props.UserId, props.AboutText, born, membershipType, props.FirstLifeText, flags,
-                                                              props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId);
+                                                              props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId, props.CustomerType);
 
                                 client.SendAvatarInterestsReply(props.UserId, (uint)props.WantToMask, props.WantToText,
                                                              (uint)props.SkillsMask, props.SkillsText, props.Language);
@@ -170,7 +170,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
                                 if (!clients.Contains(client) && client.IsActive)
                                 {
                                     client.SendAvatarProperties(props.UserId, props.AboutText, born, membershipType, props.FirstLifeText, flags,
-                                                                  props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId);
+                                                                  props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId, props.CustomerType);
 
                                     client.SendAvatarInterestsReply(props.UserId, (uint)props.WantToMask, props.WantToText,
                                                                  (uint)props.SkillsMask, props.SkillsText, props.Language);
@@ -182,7 +182,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
                                     if (!cli.IsActive)
                                         continue;
                                     cli.SendAvatarProperties(props.UserId, props.AboutText, born, membershipType, props.FirstLifeText, flags,
-                                                                props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId);
+                                                                props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId, props.CustomerType);
 
                                     cli.SendAvatarInterestsReply(props.UserId, (uint)props.WantToMask, props.WantToText,
                                                                 (uint)props.SkillsMask, props.SkillsText, props.Language);
@@ -1578,7 +1578,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
             {
                 remoteClient.SendAvatarProperties(avatarID, "Creator of OpenSimulator shared assets library", Constants.m_MrOpenSimBorn.ToString(),
                       Utils.StringToBytes("System agent"), "MrOpenSim has no life", 0x10,
-                      UUID.Zero, UUID.Zero, "", UUID.Zero);
+                      UUID.Zero, UUID.Zero, "", UUID.Zero, string.Empty);
                 remoteClient.SendAvatarInterestsReply(avatarID, 0, "",
                           0, "Getting into trouble", "Droidspeak");
                 return;
@@ -1588,7 +1588,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
             {
                 remoteClient.SendAvatarProperties(avatarID, ((INPC)(p.ControllingClient)).profileAbout, ((INPC)(p.ControllingClient)).Born,
                       Utils.StringToBytes("Non Player Character (NPC)"), "NPCs have no life", 0x10,
-                      UUID.Zero, ((INPC)(p.ControllingClient)).profileImage, "", UUID.Zero);
+                      UUID.Zero, ((INPC)(p.ControllingClient)).profileImage, "", UUID.Zero, string.Empty);
                 remoteClient.SendAvatarInterestsReply(avatarID, 0, "",
                           0, "Getting into trouble", "Droidspeak");
                 return;
@@ -1610,7 +1610,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
 
                         remoteClient.SendAvatarProperties(props.UserId, props.AboutText,
                             uce.born, uce.membershipType , props.FirstLifeText, cflags,
-                            props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId);
+                            props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId, props.CustomerType);
 
                         remoteClient.SendAvatarInterestsReply(props.UserId, (uint)props.WantToMask,
                             props.WantToText, (uint)props.SkillsMask,
@@ -1740,7 +1740,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
             if(clients == null)
             {
                 remoteClient.SendAvatarProperties(props.UserId, props.AboutText, born, membershipType , props.FirstLifeText, flags,
-                                              props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId);
+                                              props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId, props.CustomerType);
 
                 remoteClient.SendAvatarInterestsReply(props.UserId, (uint)props.WantToMask, props.WantToText,
                                              (uint)props.SkillsMask, props.SkillsText, props.Language);
@@ -1754,7 +1754,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
                     if(!cli.IsActive)
                         continue;
                     cli.SendAvatarProperties(props.UserId, props.AboutText, born, membershipType , props.FirstLifeText, flags,
-                                              props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId);
+                                              props.FirstLifeImageId, props.ImageId, props.WebUrl, props.PartnerId, props.CustomerType);
 
                     cli.SendAvatarInterestsReply(props.UserId, (uint)props.WantToMask, props.WantToText,
                                              (uint)props.SkillsMask, props.SkillsText, props.Language);
@@ -1849,6 +1849,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
             }
 
             properties = (UserProfileProperties)Prop;
+            properties.CustomerType ??= string.Empty;
             if(foreign)
             {
                 cacheForeignImage(properties.UserId, properties.ImageId);

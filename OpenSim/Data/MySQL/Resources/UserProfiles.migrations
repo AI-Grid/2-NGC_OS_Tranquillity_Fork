@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS `userprofile` (
   `profileAboutText` text NOT NULL,
   `profileFirstImage` varchar(36) NOT NULL,
   `profileFirstText` text NOT NULL,
+  `profileCustomerType` varchar(64) NOT NULL DEFAULT '',
   PRIMARY KEY (`useruuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
@@ -82,5 +83,14 @@ CREATE TABLE IF NOT EXISTS `usersettings` (
   `email` varchar(254) NOT NULL,
   PRIMARY KEY (`useruuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+commit;
+
+:VERSION 6         # -------------------------------
+
+begin;
+
+ALTER TABLE `userprofile`
+    ADD COLUMN `profileCustomerType` varchar(64) NOT NULL DEFAULT '';
 
 commit;

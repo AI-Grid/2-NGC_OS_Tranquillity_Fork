@@ -63,6 +63,7 @@ CREATE TABLE userprofile (
   "profileAboutText" text NOT NULL,
   "profileFirstImage" varchar(36) NOT NULL,
   "profileFirstText" text NOT NULL,
+  "profileCustomerType" varchar(64) NOT NULL DEFAULT '',
   PRIMARY KEY ("useruuid")
 );
 
@@ -159,5 +160,13 @@ COMMIT;
 BEGIN TRANSACTION;
 
 ALTER TABLE userpicks ADD "gatekeeper" varchar(255) COLLATE "default";
+
+COMMIT;
+
+:VERSION 7         # -------------------------------
+
+BEGIN;
+
+ALTER TABLE userprofile ADD "profileCustomerType" varchar(64) NOT NULL DEFAULT '';
 
 COMMIT;

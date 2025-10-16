@@ -993,8 +993,9 @@ namespace OpenSim.Tests.Common
 
         public void SendAvatarProperties(UUID avatarID, string aboutText, string bornOn, Byte[] membershipType,
                                          string flAbout, uint flags, UUID flImageID, UUID imageID, string profileURL,
-                                         UUID partnerID)
+                                         UUID partnerID, string customerType)
         {
+            _ = customerType;
         }
 
         public int DebugPacketLevel { get; set; }
