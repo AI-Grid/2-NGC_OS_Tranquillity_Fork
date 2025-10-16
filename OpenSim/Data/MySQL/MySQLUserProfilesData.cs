@@ -616,6 +616,15 @@ namespace OpenSim.Data.MySQL
                                 props.SkillsMask = (int)reader["profileSkillsMask"];
                                 props.SkillsText = (string)reader["profileSkillsText"];
                                 props.Language = (string)reader["profileLanguages"];
+                                try
+                                {
+                                    int idx = reader.GetOrdinal("profileCustomerType");
+                                    props.CustomerType = reader.IsDBNull(idx) ? string.Empty : (string)reader["profileCustomerType"];
+                                }
+                                catch (IndexOutOfRangeException)
+                                {
+                                    props.CustomerType = string.Empty;
+                                }
                             }
                             else
                             {
@@ -633,6 +642,7 @@ namespace OpenSim.Data.MySQL
                                 props.SkillsMask = 0;
                                 props.SkillsText = string.Empty;
                                 props.Language = string.Empty;
+                                props.CustomerType = string.Empty;
                                 props.PublishProfile = false;
                                 props.PublishMature = false;
 
@@ -650,7 +660,8 @@ namespace OpenSim.Data.MySQL
                                     + "profileImage, "
                                     + "profileAboutText, "
                                     + "profileFirstImage, "
-                                    + "profileFirstText) VALUES ("
+                                    + "profileFirstText, "
+                                    + "profileCustomerType) VALUES ("
                                     + "?userId, "
                                     + "?profilePartner, "
                                     + "?profileAllowPublish, "
@@ -664,7 +675,8 @@ namespace OpenSim.Data.MySQL
                                     + "?profileImage, "
                                     + "?profileAboutText, "
                                     + "?profileFirstImage, "
-                                    + "?profileFirstText)"
+                                    + "?profileFirstText, "
+                                    + "?profileCustomerType)"
                                     ;
 
                                 dbcon.Close();
@@ -686,6 +698,7 @@ namespace OpenSim.Data.MySQL
                                     put.Parameters.AddWithValue("?profileAboutText", props.AboutText);
                                     put.Parameters.AddWithValue("?profileFirstImage", props.FirstLifeImageId.ToString());
                                     put.Parameters.AddWithValue("?profileFirstText", props.FirstLifeText);
+                                    put.Parameters.AddWithValue("?profileCustomerType", props.CustomerType ?? string.Empty);
 
                                     put.ExecuteNonQuery();
                                 }
@@ -708,7 +721,8 @@ namespace OpenSim.Data.MySQL
         {
             const string query = "UPDATE userprofile SET profileURL=?profileURL,"
                 + "profileImage=?image, profileAboutText=?abouttext,"
-                + "profileFirstImage=?firstlifeimage, profileFirstText=?firstlifetext "
+                + "profileFirstImage=?firstlifeimage, profileFirstText=?firstlifetext, "
+                + "profileCustomerType=?customerType "
                 + "WHERE useruuid=?uuid";
 
             try
@@ -723,6 +737,7 @@ namespace OpenSim.Data.MySQL
                         cmd.Parameters.AddWithValue("?abouttext", props.AboutText);
                         cmd.Parameters.AddWithValue("?firstlifeimage", props.FirstLifeImageId.ToString());
                         cmd.Parameters.AddWithValue("?firstlifetext", props.FirstLifeText);
+                        cmd.Parameters.AddWithValue("?customerType", props.CustomerType ?? string.Empty);
                         cmd.Parameters.AddWithValue("?uuid", props.UserId.ToString());
 
                         cmd.ExecuteNonQuery();

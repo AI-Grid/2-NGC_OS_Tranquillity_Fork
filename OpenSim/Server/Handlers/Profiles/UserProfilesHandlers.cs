@@ -333,10 +333,17 @@ namespace OpenSim.Server.Handlers
             string result = string.Empty;
             UserProfileProperties props = new UserProfileProperties();
             object Props = (object)props;
-            OSD.DeserializeMembers(ref Props, (OSDMap)json["params"]);
+            OSDMap paramMap = (OSDMap)json["params"];
+            OSD.DeserializeMembers(ref Props, paramMap);
+            if (paramMap.TryGetValue("customer_type", out OSD customerType))
+                props.CustomerType = customerType.AsString();
+            else if (paramMap.TryGetValue("CustomerType", out customerType))
+                props.CustomerType = customerType.AsString();
             if(Service.AvatarPropertiesRequest(ref props, ref result))
             {
-                response.Result = OSD.SerializeMembers(props);
+                OSDMap responseMap = (OSDMap)OSD.SerializeMembers(props);
+                responseMap["customer_type"] = props.CustomerType ?? string.Empty;
+                response.Result = responseMap;
                 return true;
             }
 
@@ -358,10 +365,17 @@ namespace OpenSim.Server.Handlers
             string result = string.Empty;
             UserProfileProperties props = new UserProfileProperties();
             object Props = (object)props;
-            OSD.DeserializeMembers(ref Props, (OSDMap)json["params"]);
+            OSDMap updateMap = (OSDMap)json["params"];
+            OSD.DeserializeMembers(ref Props, updateMap);
+            if (updateMap.TryGetValue("customer_type", out OSD customerType))
+                props.CustomerType = customerType.AsString();
+            else if (updateMap.TryGetValue("CustomerType", out customerType))
+                props.CustomerType = customerType.AsString();
             if(Service.AvatarPropertiesUpdate(ref props, ref result))
             {
-                response.Result = OSD.SerializeMembers(props);
+                OSDMap responseMap = (OSDMap)OSD.SerializeMembers(props);
+                responseMap["customer_type"] = props.CustomerType ?? string.Empty;
+                response.Result = responseMap;
                 return true;
             }
 

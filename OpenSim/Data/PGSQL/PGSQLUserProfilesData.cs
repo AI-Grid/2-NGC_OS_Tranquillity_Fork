@@ -617,6 +617,15 @@ namespace OpenSim.Data.PGSQL
                                 props.SkillsMask = (int)reader["profileSkillsMask"];
                                 props.SkillsText = (string)reader["profileSkillsText"];
                                 props.Language = (string)reader["profileLanguages"];
+                                try
+                                {
+                                    int idx = reader.GetOrdinal("profileCustomerType");
+                                    props.CustomerType = reader.IsDBNull(idx) ? string.Empty : (string)reader["profileCustomerType"];
+                                }
+                                catch (IndexOutOfRangeException)
+                                {
+                                    props.CustomerType = string.Empty;
+                                }
                             }
                             else
                             {
@@ -634,6 +643,7 @@ namespace OpenSim.Data.PGSQL
                                 props.SkillsMask = 0;
                                 props.SkillsText = string.Empty;
                                 props.Language = string.Empty;
+                                props.CustomerType = string.Empty;
                                 props.PublishProfile = false;
                                 props.PublishMature = false;
 
@@ -651,7 +661,8 @@ namespace OpenSim.Data.PGSQL
                                 query += "\"profileImage\", ";
                                 query += "\"profileAboutText\", ";
                                 query += "\"profileFirstImage\", ";
-                                query += "\"profileFirstText\") VALUES (";
+                                query += "\"profileFirstText\", ";
+                                query += "\"profileCustomerType\") VALUES (";
                                 query += ":userId, ";
                                 query += ":profilePartner, ";
                                 query += ":profileAllowPublish, ";
@@ -665,7 +676,8 @@ namespace OpenSim.Data.PGSQL
                                 query += ":profileImage, ";
                                 query += ":profileAboutText, ";
                                 query += ":profileFirstImage, ";
-                                query += ":profileFirstText)";
+                                query += ":profileFirstText, ";
+                                query += ":profileCustomerType)";
 
                                 dbcon.Close();
                                 dbcon.Open();
@@ -689,6 +701,7 @@ namespace OpenSim.Data.PGSQL
                                     put.Parameters.Add(m_database.CreateParameter("profileAboutText", props.AboutText));
                                     put.Parameters.Add(m_database.CreateParameter("profileFirstImage", props.FirstLifeImageId));
                                     put.Parameters.Add(m_database.CreateParameter("profileFirstText", props.FirstLifeText));
+                                    put.Parameters.Add(m_database.CreateParameter("profileCustomerType", props.CustomerType ?? string.Empty));
 
                                     put.ExecuteNonQuery();
                                 }
@@ -716,7 +729,8 @@ namespace OpenSim.Data.PGSQL
             query += "\"profileImage\"=:image, ";
             query += "\"profileAboutText\"=:abouttext,";
             query += "\"profileFirstImage\"=:firstlifeimage,";
-            query += "\"profileFirstText\"=:firstlifetext ";
+            query += "\"profileFirstText\"=:firstlifetext, ";
+            query += "\"profileCustomerType\"=:customerType ";
             query += "WHERE \"useruuid\"=:uuid";
 
             try
@@ -731,6 +745,7 @@ namespace OpenSim.Data.PGSQL
                         cmd.Parameters.Add(m_database.CreateParameter("abouttext", props.AboutText));
                         cmd.Parameters.Add(m_database.CreateParameter("firstlifeimage", props.FirstLifeImageId));
                         cmd.Parameters.Add(m_database.CreateParameter("firstlifetext", props.FirstLifeText));
+                        cmd.Parameters.Add(m_database.CreateParameter("customerType", props.CustomerType ?? string.Empty));
                         cmd.Parameters.Add(m_database.CreateParameter("uuid", props.UserId));
 
                         cmd.ExecuteNonQuery();
