@@ -269,9 +269,13 @@ namespace OpenSim.Server.Handlers.Login
                                            UUID scope = UUID.Zero;
                                            IPEndPoint endPoint =
                                                (sender as WebSocketHttpServerHandler).GetRemoteIPEndpoint();
+                                           bool agreeToTos = false;
+                                           if (req.TryGetValue("agree_to_tos", out OSD atmp))
+                                               agreeToTos = atmp.AsBoolean();
+
                                            LoginResponse reply = null;
                                            reply = m_LocalService.Login(first, last, passwd, start, scope, version,
-                                                                        channel, mac, id0, endPoint);
+                                                                        channel, mac, id0, endPoint, agreeToTos);
                                            sock.SendMessage(OSDParser.SerializeJsonString(reply.ToOSDMap()));
 
                                        }
