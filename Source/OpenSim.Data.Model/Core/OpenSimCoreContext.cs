@@ -1412,6 +1412,8 @@ public partial class OpenSimCoreContext : DbContext
                 .HasDefaultValueSql("''")
                 .UseCollation("utf8mb3_general_ci")
                 .HasCharSet("utf8mb3");
+            entity.Property(e => e.TosDate)
+                .HasColumnName("TOSDate");
         });
 
         modelBuilder.Entity<UserAlias>(entity =>
