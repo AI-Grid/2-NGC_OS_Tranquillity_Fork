@@ -824,7 +824,7 @@ namespace OpenSim
                 if (gridService is null)
                     continue;
 
-                List<GridRegion> regions;
+                List<OpenSim.Services.Interfaces.GridRegion> regions;
                 try
                 {
                     regions = gridService.GetRegionRange(scene.RegionInfo.ScopeID, int.MinValue, int.MaxValue, int.MinValue, int.MaxValue);
@@ -838,7 +838,7 @@ namespace OpenSim
                 if (regions is null || regions.Count == 0)
                     continue;
 
-                foreach (GridRegion region in regions)
+                foreach (OpenSim.Services.Interfaces.GridRegion region in regions)
                 {
                     if (region is null || region.RegionID == UUID.Zero)
                         continue;
@@ -876,7 +876,7 @@ namespace OpenSim
             return SendPrimResult.ObjectNotFound;
         }
 
-        private static bool TryBuildRemoteSendUri(GridRegion region, UUID objectId, UUID userId, out Uri sendUri)
+        private static bool TryBuildRemoteSendUri(OpenSim.Services.Interfaces.GridRegion region, UUID objectId, UUID userId, out Uri sendUri)
         {
             sendUri = null;
 
@@ -908,7 +908,7 @@ namespace OpenSim
             return true;
         }
 
-        private SendPrimResult TryForwardSendRequest(GridRegion region, Uri sendUri, out string message)
+        private SendPrimResult TryForwardSendRequest(OpenSim.Services.Interfaces.GridRegion region, Uri sendUri, out string message)
         {
             try
             {
