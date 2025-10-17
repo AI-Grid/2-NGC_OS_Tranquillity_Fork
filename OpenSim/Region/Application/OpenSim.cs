@@ -52,6 +52,7 @@ using OpenSim.Region.Framework.Scenes.Serialization;
 using OpenSim.Services.Interfaces;
 using OpenSim.Framework.Servers.HttpServer;
 using PermissionMask = OpenSim.Framework.PermissionMask;
+using GridServiceRegion = OpenSim.Services.Interfaces.GridRegion;
 
 namespace OpenSim
 {
@@ -824,7 +825,7 @@ namespace OpenSim
                 if (gridService is null)
                     continue;
 
-                List<OpenSim.Services.Interfaces.GridRegion> regions;
+                List<GridServiceRegion> regions;
                 try
                 {
                     regions = gridService.GetRegionRange(scene.RegionInfo.ScopeID, int.MinValue, int.MaxValue, int.MinValue, int.MaxValue);
@@ -838,7 +839,7 @@ namespace OpenSim
                 if (regions is null || regions.Count == 0)
                     continue;
 
-                foreach (OpenSim.Services.Interfaces.GridRegion region in regions)
+                foreach (GridServiceRegion region in regions)
                 {
                     if (region is null || region.RegionID == UUID.Zero)
                         continue;
@@ -876,7 +877,7 @@ namespace OpenSim
             return SendPrimResult.ObjectNotFound;
         }
 
-        private static bool TryBuildRemoteSendUri(OpenSim.Services.Interfaces.GridRegion region, UUID objectId, UUID userId, out Uri sendUri)
+        private static bool TryBuildRemoteSendUri(GridServiceRegion region, UUID objectId, UUID userId, out Uri sendUri)
         {
             sendUri = null;
 
@@ -908,7 +909,7 @@ namespace OpenSim
             return true;
         }
 
-        private SendPrimResult TryForwardSendRequest(OpenSim.Services.Interfaces.GridRegion region, Uri sendUri, out string message)
+        private SendPrimResult TryForwardSendRequest(GridServiceRegion region, Uri sendUri, out string message)
         {
             try
             {
