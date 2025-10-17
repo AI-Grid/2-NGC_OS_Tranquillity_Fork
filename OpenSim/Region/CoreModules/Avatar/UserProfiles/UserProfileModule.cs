@@ -50,7 +50,7 @@ using OpenSim.Region.CoreModules.Avatar.Friends;
 namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
 {
     [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "UserProfilesModule")]
-    public class UserProfileModule : IProfileModule, INonSharedRegionModule
+    public class UserProfileModule : IProfileModule, IAvatarBadgeModule, INonSharedRegionModule
     {
         const double PROFILECACHEEXPIRE = 300;
         /// <summary>
@@ -318,6 +318,7 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
             Scene = scene;
             m_thisGridInfo ??= scene.SceneGridInfo;
             Scene.RegisterModuleInterface<IProfileModule>(this);
+            Scene.RegisterModuleInterface<IAvatarBadgeModule>(this);
             Scene.EventManager.OnNewClient += OnNewClient;
             Scene.EventManager.OnClientClosed += OnClientClosed;
 
@@ -2000,7 +2001,87 @@ namespace OpenSim.Region.CoreModules.Avatar.UserProfiles
 
             return false;
          }
-   
+
+        public string GetCustomerType(UUID avatarId)
+        {
+            lock (m_profilesCache)
+            {
+                if (m_profilesCache.TryGetValue(avatarId, out UserProfileCacheEntry uce) && uce?.props is not null)
+                    return uce.props.CustomerType ?? string.Empty;
+            }
+
+            bool foreign = GetUserProfileServerURI(avatarId, out string serverURI);
+            if (foreign || string.IsNullOrWhiteSpace(serverURI))
+                return string.Empty;
+
+            UserProfileProperties props = new() { UserId = avatarId };
+            if (!GetProfileData(ref props, false, serverURI, out _))
+                return string.Empty;
+
+            return props.CustomerType ?? string.Empty;
+        }
+
+        public bool TrySetCustomerType(UUID requestingAgent, UUID targetAgent, string customerType, out string message)
+        {
+            message = string.Empty;
+
+            bool foreign = GetUserProfileServerURI(targetAgent, out string serverURI);
+            if (string.IsNullOrWhiteSpace(serverURI))
+            {
+                message = "Profile service unavailable.";
+                return false;
+            }
+
+            if (foreign)
+            {
+                message = "Cannot update badges for foreign avatars.";
+                return false;
+            }
+
+            ScenePresence requesterPresence = Scene.GetScenePresence(requestingAgent);
+            bool isSelfUpdate = requestingAgent == targetAgent;
+            bool isGodLike = requesterPresence is not null && !requesterPresence.IsDeleted && requesterPresence.IsViewerUIGod;
+            if (!isSelfUpdate && !isGodLike)
+            {
+                message = "Insufficient permissions to update badge.";
+                return false;
+            }
+
+            UserProfileProperties props = new() { UserId = targetAgent };
+            if (!GetProfileData(ref props, false, serverURI, out message))
+                return false;
+
+            props.CustomerType = customerType ?? string.Empty;
+
+            object payload = props;
+            if (!rpc.JsonRpcRequest(ref payload, "avatar_properties_update", serverURI, UUID.Random().ToString()))
+            {
+                message = "Failed to update profile data.";
+                return false;
+            }
+
+            lock (m_profilesCache)
+            {
+                if (m_profilesCache.TryGetValue(targetAgent, out UserProfileCacheEntry uce) && uce is not null)
+                {
+                    uce.props = null;
+                    uce.ClientsWaitingProps = null;
+                }
+            }
+
+            ScenePresence targetPresence = Scene.GetScenePresence(targetAgent);
+            if (targetPresence is not null && !targetPresence.IsChildAgent && !targetPresence.IsDeleted)
+                RequestAvatarProperties(targetPresence.ControllingClient, targetAgent);
+
+            if (!isSelfUpdate && requesterPresence is not null && !requesterPresence.IsChildAgent && !requesterPresence.IsDeleted)
+                RequestAvatarProperties(requesterPresence.ControllingClient, targetAgent);
+
+            m_log.InfoFormat("[PROFILES]: {0} updated badge for {1} to '{2}'", requestingAgent, targetAgent, props.CustomerType ?? string.Empty);
+
+            message = "OK";
+            return true;
+        }
+
     #endregion Util
 
     #region Web Util
