@@ -11479,6 +11479,8 @@ namespace OpenSim.Region.ClientStack.LindenUDP
         private static void HandleUserReport(LLClientView c, Packet packet)
         {
             UserReportPacket UserReport = (UserReportPacket)packet;
+            if (UserReport.AgentData.SessionID.NotEqual(c.m_sessionId) || UserReport.AgentData.AgentID.NotEqual(c.m_agentId))
+                return;
             c.OnUserReport?.Invoke(c,
                     Utils.BytesToString(UserReport.ReportData.AbuseRegionName),
                     UserReport.ReportData.AbuserID,
