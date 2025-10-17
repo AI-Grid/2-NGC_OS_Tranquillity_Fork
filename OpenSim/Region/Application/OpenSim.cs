@@ -640,7 +640,7 @@ namespace OpenSim
                 MainConsole.Instance.Output($"Failed to send prim: {message}");
         }
 
-        internal SendPrimResult TrySendPrim(UUID objectId, UUID userId, out string message)
+        private SendPrimResult TrySendPrim(UUID objectId, UUID userId, out string message)
         {
             foreach (Scene scene in SceneManager.Scenes)
             {
