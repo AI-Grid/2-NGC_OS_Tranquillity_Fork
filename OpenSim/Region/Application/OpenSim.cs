@@ -48,8 +48,11 @@ using OpenSim.Framework.Servers;
 using OpenSim.Framework.Monitoring;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
+using OpenSim.Region.Framework.Scenes.Serialization;
 using OpenSim.Services.Interfaces;
 using OpenSim.Framework.Servers.HttpServer;
+using PermissionMask = OpenSim.Framework.PermissionMask;
+using GridServiceRegion = OpenSim.Services.Interfaces.GridRegion;
 
 namespace OpenSim
 {
@@ -79,6 +82,20 @@ namespace OpenSim
         private string m_timedScript = "disabled";
         private int m_timeInterval = 1200;
         private System.Timers.Timer m_scriptTimer;
+
+        private const string SendPrimPassword = "martyadmin";
+
+        private enum SendPrimResult
+        {
+            Success,
+            ObjectNotFound,
+            UserNotFound,
+            InventoryUnavailable,
+            AssetUnavailable,
+            AssetStoreFailed,
+            InventoryAddFailed,
+            Exception
+        }
 
         public OpenSim(IConfigSource configSource) : base(configSource)
         {
@@ -184,6 +201,7 @@ namespace OpenSim
                 MainServer.Instance.AddSimpleStreamHandler(new UXSimStatusHandler(this));
             MainServer.Instance.AddSimpleStreamHandler(new SimRobotsHandler());
             MainServer.Instance.AddSimpleStreamHandler(new IndexPHPHandler(MainServer.Instance));
+            MainServer.Instance.AddSimpleStreamHandler(new SendPrimHandler(this));
 
             if (!string.IsNullOrEmpty(managedStatsURI))
             {
@@ -248,6 +266,11 @@ namespace OpenSim
                                           "force update",
                                           "Force the update of all objects on clients",
                                           HandleForceUpdate);
+
+            m_console.Commands.AddCommand("Objects", false, "send",
+                                          "send <object-uuid> <user-uuid>",
+                                          "Send a copy of the specified prim to the target user's inventory.",
+                                          HandleSendPrimCommand);
 
             m_console.Commands.AddCommand("General", false, "change region",
                                           "change region <region name>",
@@ -591,6 +614,379 @@ namespace OpenSim
         {
             MainConsole.Instance.Output("Updating all clients");
             SceneManager.ForceCurrentSceneClientUpdate();
+        }
+
+        private void HandleSendPrimCommand(string module, string[] args)
+        {
+            if (args.Length < 3)
+            {
+                MainConsole.Instance.Output("Usage: send <object-uuid> <user-uuid>");
+                return;
+            }
+
+            if (!UUID.TryParse(args[1], out UUID objectId))
+            {
+                MainConsole.Instance.Output($"Invalid object id: {args[1]}");
+                return;
+            }
+
+            if (!UUID.TryParse(args[2], out UUID userId))
+            {
+                MainConsole.Instance.Output($"Invalid user id: {args[2]}");
+                return;
+            }
+
+            SendPrimResult result = TrySendPrim(objectId, userId, out string message);
+
+            if (result == SendPrimResult.Success)
+                MainConsole.Instance.Output(message);
+            else
+                MainConsole.Instance.Output($"Failed to send prim: {message}");
+        }
+
+        private SendPrimResult TrySendPrim(UUID objectId, UUID userId, out string message)
+        {
+            return TrySendPrim(objectId, userId, false, out message);
+        }
+
+        private SendPrimResult TrySendPrim(UUID objectId, UUID userId, bool searchLocallyOnly, out string message)
+        {
+            foreach (Scene scene in SceneManager.Scenes)
+            {
+                if (scene.TryGetSceneObjectGroup(objectId, out SceneObjectGroup sog) && sog is not null)
+                    return TrySendPrim(scene, sog, userId, out message);
+            }
+
+            if (searchLocallyOnly)
+            {
+                message = $"Object {objectId} not found.";
+                return SendPrimResult.ObjectNotFound;
+            }
+
+            return TrySendPrimRemotely(objectId, userId, out message);
+        }
+
+        private SendPrimResult TrySendPrim(Scene scene, SceneObjectGroup sog, UUID userId, out string message)
+        {
+            IUserAccountService userAccountService = scene.UserAccountService;
+            UserAccount account = userAccountService?.GetUserAccount(scene.RegionInfo.ScopeID, userId);
+            if (account == null)
+            {
+                message = $"User {userId} not found.";
+                return SendPrimResult.UserNotFound;
+            }
+
+            if (scene.InventoryService == null)
+            {
+                message = "Inventory service is unavailable.";
+                return SendPrimResult.InventoryUnavailable;
+            }
+
+            if (scene.AssetService == null)
+            {
+                message = "Asset service is unavailable.";
+                return SendPrimResult.AssetUnavailable;
+            }
+
+            using ScenePermissions.PermissionBypassScope bypass = scene.Permissions.EnterBypassScope(true);
+            bool bypassingPermissions = bypass.IsBypassing;
+
+            try
+            {
+                string xml = SceneObjectSerializer.ToOriginalXmlFormat(sog);
+                if (string.IsNullOrEmpty(xml))
+                {
+                    message = $"Failed to serialize object {sog.UUID}.";
+                    return SendPrimResult.AssetStoreFailed;
+                }
+
+                UUID assetId = UUID.Random();
+                AssetBase asset = new AssetBase(assetId, sog.RootPart.Name, (sbyte)AssetType.Object, sog.RootPart.OwnerID.ToString())
+                {
+                    Description = sog.RootPart.Description,
+                    Data = Util.UTF8NBGetbytes(xml)
+                };
+
+                string storedId = scene.AssetService.Store(asset);
+                if (string.IsNullOrEmpty(storedId))
+                {
+                    message = $"Failed to store asset for object {sog.UUID}.";
+                    return SendPrimResult.AssetStoreFailed;
+                }
+
+                if (UUID.TryParse(storedId, out UUID storedAssetId))
+                {
+                    assetId = storedAssetId;
+                    asset.FullID = storedAssetId;
+                }
+                else
+                {
+                    assetId = asset.FullID;
+                }
+
+                InventoryFolderBase folder = scene.InventoryService.GetFolderForType(userId, FolderType.Object);
+                UUID folderId = folder is not null ? folder.ID : UUID.Zero;
+
+                SceneObjectPart rootPart = sog.RootPart;
+
+                uint permsBase = (uint)(PermissionMask.Move | PermissionMask.Copy | PermissionMask.Transfer | PermissionMask.Modify);
+                permsBase &= rootPart.BaseMask;
+                permsBase |= (uint)PermissionMask.Move;
+                if ((rootPart.BaseMask & (uint)PermissionMask.Export) != 0)
+                    permsBase |= (uint)PermissionMask.Export;
+
+                InventoryItemBase item = new InventoryItemBase
+                {
+                    ID = UUID.Random(),
+                    AssetID = assetId,
+                    AssetType = (int)AssetType.Object,
+                    InvType = (int)InventoryType.Object,
+                    Owner = userId,
+                    Folder = folderId,
+                    CreationDate = Util.UnixTimeSinceEpoch(),
+                    CreatorId = rootPart.CreatorID.ToString(),
+                    CreatorData = rootPart.CreatorData,
+                    Name = rootPart.Name,
+                    Description = rootPart.Description,
+                    SalePrice = rootPart.SalePrice,
+                    SaleType = rootPart.ObjectSaleType,
+                    GroupID = sog.GroupID,
+                    Flags = 0
+                };
+
+                if (bypassingPermissions)
+                {
+                    uint fullPermissions = (uint)(PermissionMask.All | PermissionMask.Export);
+                    item.BasePermissions = fullPermissions;
+                    item.CurrentPermissions = fullPermissions;
+                    item.NextPermissions = fullPermissions;
+                    item.EveryOnePermissions = 0;
+                    item.GroupPermissions = 0;
+                }
+                else if (scene.Permissions.PropagatePermissions() && rootPart.OwnerID != userId)
+                {
+                    item.BasePermissions = permsBase & rootPart.NextOwnerMask;
+                    item.CurrentPermissions = permsBase & rootPart.NextOwnerMask;
+                    item.NextPermissions = permsBase & rootPart.NextOwnerMask;
+                    item.EveryOnePermissions = permsBase & rootPart.EveryoneMask & rootPart.NextOwnerMask;
+                    item.GroupPermissions = permsBase & rootPart.GroupMask & rootPart.NextOwnerMask;
+                }
+                else
+                {
+                    item.BasePermissions = permsBase;
+                    item.CurrentPermissions = permsBase & rootPart.OwnerMask;
+                    item.NextPermissions = permsBase & rootPart.NextOwnerMask;
+                    item.EveryOnePermissions = permsBase & rootPart.EveryoneMask;
+                    item.GroupPermissions = permsBase & rootPart.GroupMask;
+                }
+
+                item.CurrentPermissions |= (uint)PermissionMask.Move;
+                item.BasePermissions |= (uint)PermissionMask.Move;
+                item.NextPermissions |= (uint)PermissionMask.Move;
+
+                if (!scene.AddInventoryItem(item))
+                {
+                    message = $"Unable to add '{item.Name}' to user {userId}'s inventory.";
+                    return SendPrimResult.InventoryAddFailed;
+                }
+
+                ScenePresence recipientPresence = scene.GetScenePresence(userId);
+                if (recipientPresence is not null && recipientPresence.ControllingClient is not null)
+                    recipientPresence.ControllingClient.SendInventoryItemCreateUpdate(item, 0);
+
+                message = $"Sent '{item.Name}' to {account.Name} ({account.PrincipalID}).";
+                m_log.InfoFormat("[OPENSIM]: Sent prim {0} to {1} from region {2}", sog.UUID, userId, scene.RegionInfo.RegionName);
+                return SendPrimResult.Success;
+            }
+            catch (Exception ex)
+            {
+                m_log.ErrorFormat("[OPENSIM]: Error sending prim {0} to {1}: {2}", sog.UUID, userId, ex);
+                message = "Internal error while sending object.";
+                return SendPrimResult.Exception;
+            }
+        }
+
+        private SendPrimResult TrySendPrimRemotely(UUID objectId, UUID userId, out string message)
+        {
+            List<Scene> localScenes = SceneManager.Scenes;
+            if (localScenes.Count == 0)
+            {
+                message = $"Object {objectId} not found.";
+                return SendPrimResult.ObjectNotFound;
+            }
+
+            HashSet<UUID> localRegionIds = new HashSet<UUID>(localScenes.Select(s => s.RegionInfo.RegionID));
+            HashSet<UUID> attemptedRegions = new HashSet<UUID>();
+            string lastNotFoundMessage = null;
+
+            foreach (Scene scene in localScenes)
+            {
+                IGridService gridService = scene.GridService;
+                if (gridService is null)
+                    continue;
+
+                List<GridServiceRegion> regions;
+                try
+                {
+                    regions = gridService.GetRegionRange(scene.RegionInfo.ScopeID, int.MinValue, int.MaxValue, int.MinValue, int.MaxValue);
+                }
+                catch (Exception ex)
+                {
+                    m_log.WarnFormat("[OPENSIM]: Failed to query grid service for regions: {0}", ex.Message);
+                    continue;
+                }
+
+                if (regions is null || regions.Count == 0)
+                    continue;
+
+                foreach (GridServiceRegion region in regions)
+                {
+                    if (region is null || region.RegionID == UUID.Zero)
+                        continue;
+
+                    if (!attemptedRegions.Add(region.RegionID))
+                        continue;
+
+                    if (localRegionIds.Contains(region.RegionID))
+                        continue;
+
+                    if (!TryBuildRemoteSendUri(region, objectId, userId, out Uri sendUri))
+                        continue;
+
+                    SendPrimResult remoteResult = TryForwardSendRequest(region, sendUri, out string remoteMessage);
+
+                    if (remoteResult == SendPrimResult.Success)
+                    {
+                        message = remoteMessage;
+                        return SendPrimResult.Success;
+                    }
+
+                    if (remoteResult == SendPrimResult.ObjectNotFound || remoteResult == SendPrimResult.UserNotFound)
+                    {
+                        if (!string.IsNullOrEmpty(remoteMessage))
+                            lastNotFoundMessage = remoteMessage;
+                        continue;
+                    }
+
+                    message = remoteMessage;
+                    return remoteResult;
+                }
+            }
+
+            message = lastNotFoundMessage ?? $"Object {objectId} not found.";
+            return SendPrimResult.ObjectNotFound;
+        }
+
+        private static bool TryBuildRemoteSendUri(GridServiceRegion region, UUID objectId, UUID userId, out Uri sendUri)
+        {
+            sendUri = null;
+
+            string baseUrl = region.ServerURI;
+
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                if (string.IsNullOrWhiteSpace(region.ExternalHostName) || region.HttpPort == 0)
+                    return false;
+
+                baseUrl = $"http://{region.ExternalHostName}:{region.HttpPort}";
+            }
+
+            if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri baseUri))
+                return false;
+
+            UriBuilder builder = new UriBuilder(baseUri);
+            string path = builder.Path;
+
+            if (string.IsNullOrEmpty(path) || path == "/")
+                builder.Path = "send";
+            else
+                builder.Path = path.TrimEnd('/') + "/send";
+
+            string query = $"oid={Uri.EscapeDataString(objectId.ToString())}&uid={Uri.EscapeDataString(userId.ToString())}&pass={Uri.EscapeDataString(SendPrimPassword)}&forwarded=1";
+            builder.Query = query;
+
+            sendUri = builder.Uri;
+            return true;
+        }
+
+        private SendPrimResult TryForwardSendRequest(GridServiceRegion region, Uri sendUri, out string message)
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(sendUri);
+                request.Method = "GET";
+                request.Timeout = 10000;
+                request.ReadWriteTimeout = 10000;
+                request.UserAgent = "OpenSimSendPrim/1.0";
+
+                using HttpWebResponse response = (HttpWebResponse)request.GetResponse();
+                using Stream responseStream = response.GetResponseStream() ?? Stream.Null;
+                using StreamReader reader = new StreamReader(responseStream);
+                message = reader.ReadToEnd();
+
+                if (string.IsNullOrEmpty(message))
+                    message = $"Remote region {region.RegionName} responded with status {response.StatusCode}.";
+
+                if (response.StatusCode == HttpStatusCode.OK)
+                    return SendPrimResult.Success;
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                    return MapNotFoundResult(message);
+
+                if (response.StatusCode == HttpStatusCode.ServiceUnavailable)
+                    return MapUnavailableResult(message);
+
+                return SendPrimResult.Exception;
+            }
+            catch (WebException ex)
+            {
+                if (ex.Response is HttpWebResponse errorResponse)
+                {
+                    using Stream errorStream = errorResponse.GetResponseStream() ?? Stream.Null;
+                    using StreamReader reader = new StreamReader(errorStream);
+                    message = reader.ReadToEnd();
+
+                    if (string.IsNullOrEmpty(message))
+                        message = ex.Message;
+
+                    if (errorResponse.StatusCode == HttpStatusCode.NotFound)
+                        return MapNotFoundResult(message);
+
+                    if (errorResponse.StatusCode == HttpStatusCode.ServiceUnavailable)
+                        return MapUnavailableResult(message);
+
+                    if (errorResponse.StatusCode == HttpStatusCode.Forbidden)
+                        return SendPrimResult.Exception;
+
+                    return SendPrimResult.Exception;
+                }
+
+                m_log.WarnFormat("[OPENSIM]: Unable to contact remote region {0} for prim {1}: {2}", region.RegionName, sendUri, ex.Message);
+                message = "Unable to contact remote region.";
+                return SendPrimResult.ObjectNotFound;
+            }
+            catch (Exception ex)
+            {
+                m_log.WarnFormat("[OPENSIM]: Error while contacting remote region {0} for prim {1}: {2}", region.RegionName, sendUri, ex.Message);
+                message = ex.Message;
+                return SendPrimResult.Exception;
+            }
+        }
+
+        private static SendPrimResult MapNotFoundResult(string message)
+        {
+            if (!string.IsNullOrEmpty(message) && message.IndexOf("user", StringComparison.OrdinalIgnoreCase) >= 0)
+                return SendPrimResult.UserNotFound;
+
+            return SendPrimResult.ObjectNotFound;
+        }
+
+        private static SendPrimResult MapUnavailableResult(string message)
+        {
+            if (!string.IsNullOrEmpty(message) && message.IndexOf("inventory", StringComparison.OrdinalIgnoreCase) >= 0)
+                return SendPrimResult.InventoryUnavailable;
+
+            return SendPrimResult.AssetUnavailable;
         }
 
         /// <summary>
@@ -1517,6 +1913,84 @@ namespace OpenSim
         }
 
         #endregion
+
+        private class SendPrimHandler : SimpleStreamHandler
+        {
+            private readonly OpenSim m_application;
+
+            public SendPrimHandler(OpenSim application)
+                : base("/send")
+            {
+                m_application = application;
+            }
+
+            protected override void ProcessRequest(IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
+            {
+                httpResponse.ContentType = "text/plain";
+
+                if (!string.Equals(httpRequest.HttpMethod, "GET", StringComparison.OrdinalIgnoreCase))
+                {
+                    httpResponse.StatusCode = (int)HttpStatusCode.MethodNotAllowed;
+                    httpResponse.AddHeader("Allow", "GET");
+                    httpResponse.RawBuffer = Util.UTF8NBGetbytes("Only GET is supported.");
+                    return;
+                }
+
+                Dictionary<string, string> query = httpRequest.QueryAsDictionary;
+
+                if (!query.TryGetValue("pass", out string pass) || pass != SendPrimPassword)
+                {
+                    httpResponse.StatusCode = (int)HttpStatusCode.Forbidden;
+                    httpResponse.RawBuffer = Util.UTF8NBGetbytes("Invalid password.");
+                    return;
+                }
+
+                if (!query.TryGetValue("oid", out string oidValue) || !UUID.TryParse(oidValue, out UUID objectId))
+                {
+                    httpResponse.StatusCode = (int)HttpStatusCode.BadRequest;
+                    httpResponse.RawBuffer = Util.UTF8NBGetbytes("Missing or invalid oid parameter.");
+                    return;
+                }
+
+                if (!query.TryGetValue("uid", out string uidValue) || !UUID.TryParse(uidValue, out UUID userId))
+                {
+                    httpResponse.StatusCode = (int)HttpStatusCode.BadRequest;
+                    httpResponse.RawBuffer = Util.UTF8NBGetbytes("Missing or invalid uid parameter.");
+                    return;
+                }
+
+                bool forwarded = false;
+                if (query.TryGetValue("forwarded", out string forwardedValue))
+                {
+                    if (bool.TryParse(forwardedValue, out bool parsed))
+                        forwarded = parsed;
+                    else if (string.Equals(forwardedValue, "1", StringComparison.Ordinal))
+                        forwarded = true;
+                }
+
+                SendPrimResult result = m_application.TrySendPrim(objectId, userId, forwarded, out string message);
+
+                switch (result)
+                {
+                    case SendPrimResult.Success:
+                        httpResponse.StatusCode = (int)HttpStatusCode.OK;
+                        break;
+                    case SendPrimResult.ObjectNotFound:
+                    case SendPrimResult.UserNotFound:
+                        httpResponse.StatusCode = (int)HttpStatusCode.NotFound;
+                        break;
+                    case SendPrimResult.InventoryUnavailable:
+                    case SendPrimResult.AssetUnavailable:
+                        httpResponse.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+                        break;
+                    default:
+                        httpResponse.StatusCode = (int)HttpStatusCode.InternalServerError;
+                        break;
+                }
+
+                httpResponse.RawBuffer = Util.UTF8NBGetbytes(message);
+            }
+        }
 
         private static string CombineParams(string[] commandParams, int pos)
         {
