@@ -490,6 +490,12 @@
     WelcomeMessage = "Welcome, Avatar!"
     AllowRemoteSetLoginLevel = "false"
 
+    ; URL of the grid's Terms of Service. If set, viewers must present the ToS and
+    ; require users to accept it before logging in. Changing the ToS_Date value will
+    ; force users to accept the new Terms on their next login.
+    ; TOS_URL = "http://tos.main.examplegrid.com"
+    ; TOS_Date = 0
+
     ; For V2 map
     MapTileURL = "${Const|BaseURL}:${Const|PublicPort}/";
 
