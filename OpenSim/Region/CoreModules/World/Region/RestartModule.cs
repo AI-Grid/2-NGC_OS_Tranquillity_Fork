@@ -40,6 +40,7 @@ using OpenSim.Framework;
 using OpenSim.Framework.Console;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
+using OpenMetaverse.StructuredData;
 using Timer=System.Timers.Timer;
 using Mono.Addins;
 
@@ -195,34 +196,45 @@ namespace OpenSim.Region.CoreModules.World.Region
 
             if (sendOut)
             {
-                int minutes = currentAlert / 60;
-                string currentAlertString = String.Empty;
-                if (minutes > 0)
+                const string restartNotice = "RegionRestartSeconds";
+                OSDMap payload = new();
+                payload.Add("NAME", m_Scene.RegionInfo.RegionName);
+                payload.Add("SECONDS", currentAlert);
+                byte[] extra = Util.StringToBytes256(OSDParser.SerializeLLSDXmlString(payload));
+
+                m_Scene.ForEachRootClient(client => SendAlertWithPayload(client, restartNotice, restartNotice, extra));
+                m_log.InfoFormat("[RESTART MODULE]: {0} will restart in {1} seconds", m_Scene.Name, currentAlert);
+
+                if (m_DialogModule != null && !string.IsNullOrEmpty(m_Message))
                 {
-                    if (minutes == 1)
-                        currentAlertString += "1 minute";
-                    else
-                        currentAlertString += String.Format("{0} minutes", minutes);
+                    int minutes = currentAlert / 60;
+                    string currentAlertString = string.Empty;
+                    if (minutes > 0)
+                    {
+                        if (minutes == 1)
+                            currentAlertString += "1 minute";
+                        else
+                            currentAlertString += string.Format("{0} minutes", minutes);
+                        if ((currentAlert % 60) != 0)
+                            currentAlertString += " and ";
+                    }
                     if ((currentAlert % 60) != 0)
-                        currentAlertString += " and ";
-                }
-                if ((currentAlert % 60) != 0)
-                {
-                    int seconds = currentAlert % 60;
-                    if (seconds == 1)
-                        currentAlertString += "1 second";
-                    else
-                        currentAlertString += String.Format("{0} seconds", seconds);
-                }
+                    {
+                        int seconds = currentAlert % 60;
+                        if (seconds == 1)
+                            currentAlertString += "1 second";
+                        else
+                            currentAlertString += string.Format("{0} seconds", seconds);
+                    }
 
-                string msg = String.Format(m_Message, currentAlertString);
-
-                if (m_DialogModule != null && msg != String.Empty)
-                {
-                    if (m_Notice)
-                        m_DialogModule.SendGeneralAlert(msg);
-                    else
-                        m_DialogModule.SendNotificationToUsersInRegion(m_Initiator, "System", msg);
+                    string msg = string.Format(m_Message, currentAlertString);
+                    if (!string.IsNullOrEmpty(msg))
+                    {
+                        if (m_Notice)
+                            m_DialogModule.SendGeneralAlert(msg);
+                        else
+                            m_DialogModule.SendNotificationToUsersInRegion(m_Initiator, "System", msg);
+                    }
                 }
             }
 
@@ -361,6 +373,30 @@ namespace OpenSim.Region.CoreModules.World.Region
             catch (Exception)
             {
             }
+        }
+
+        private static void SendAlertWithPayload(IClientAPI client, string message, string info, byte[] extraParams)
+        {
+            if (client == null)
+                return;
+
+            try
+            {
+                MethodInfo payloadMethod = client.GetType().GetMethod(
+                    nameof(IClientAPI.SendAlertMessage), new[] { typeof(string), typeof(string), typeof(byte[]) });
+
+                if (payloadMethod != null)
+                {
+                    payloadMethod.Invoke(client, new object[] { message, info, extraParams });
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                m_log.WarnFormat("[RESTART MODULE]: Failed to send restart alert payload via reflection: {0}", ex);
+            }
+
+            client.SendAlertMessage(message, info);
         }
 
         int CountAgents()
