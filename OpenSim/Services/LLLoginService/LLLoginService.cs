@@ -84,6 +84,8 @@ namespace OpenSim.Services.LLLoginService
         protected int m_MaxAgentGroups = 42;
         protected string m_DestinationGuide;
         protected string m_AvatarPicker;
+        protected string m_TOS_URL;
+        protected int m_TOS_Date;
         protected Regex m_AllowedClientsRegex;
         protected Regex m_DeniedClientsRegex;
         protected string m_DeniedMacs;
@@ -131,6 +133,8 @@ namespace OpenSim.Services.LLLoginService
             m_ClassifiedFee = m_LoginServerConfig.GetString("ClassifiedFee", string.Empty);
             m_DestinationGuide = m_LoginServerConfig.GetString ("DestinationGuide", string.Empty);
             m_AvatarPicker = m_LoginServerConfig.GetString("AvatarPicker", string.Empty);
+            m_TOS_URL = m_LoginServerConfig.GetString("TOS_URL", string.Empty);
+            m_TOS_Date = m_LoginServerConfig.GetInt("TOS_Date", 0);
 
             m_allowLoginFallbackToAnyRegion = m_LoginServerConfig.GetBoolean("AllowLoginFallbackToAnyRegion", m_allowLoginFallbackToAnyRegion);
 
@@ -330,7 +334,7 @@ namespace OpenSim.Services.LLLoginService
         }
 
         public LoginResponse Login(string firstName, string lastName, string passwd, string startLocation, UUID scopeID,
-            string clientVersion, string channel, string mac, string id0, IPEndPoint clientIP)
+            string clientVersion, string channel, string mac, string id0, IPEndPoint clientIP, bool agree_to_tos = false)
         {
             bool success;
             UUID session = UUID.Random();
@@ -461,6 +465,22 @@ namespace OpenSim.Services.LLLoginService
                         "[LLOGIN SERVICE]: Login failed for {0} {1}, reason: authentication failed",
                         firstName, lastName);
                     return LLFailedLoginResponse.UserProblem;
+                }
+
+                if (!string.IsNullOrEmpty(m_TOS_URL) && account.TOSDate < m_TOS_Date)
+                {
+                    if (!agree_to_tos)
+                    {
+                        m_log.InfoFormat(
+                            "[LLOGIN SERVICE]: Login failed for {0} {1}, reason: ToS has expired",
+                            firstName, lastName);
+                        return new LLFailedLoginResponse("tos", m_TOS_URL, "false");
+                    }
+
+                    m_log.InfoFormat("[LLOGIN SERVICE]: {0} {1} has agreed to the current TOS", firstName, lastName);
+                    account.TOSDate = m_TOS_Date;
+                    if (!m_UserAccountService.StoreUserAccount(account))
+                        m_log.InfoFormat("[LLOGIN SERVICE]: Error updating UserAccount entry for {0} {1}", firstName, lastName);
                 }
 
                 string PrincipalIDstr = account.PrincipalID.ToString();
