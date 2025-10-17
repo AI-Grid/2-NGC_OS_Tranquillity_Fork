@@ -51,6 +51,7 @@ using OpenSim.Region.Framework.Scenes;
 using OpenSim.Region.Framework.Scenes.Serialization;
 using OpenSim.Services.Interfaces;
 using OpenSim.Framework.Servers.HttpServer;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim
 {
@@ -80,6 +81,8 @@ namespace OpenSim
         private string m_timedScript = "disabled";
         private int m_timeInterval = 1200;
         private System.Timers.Timer m_scriptTimer;
+
+        private const string SendPrimPassword = "martyadmin";
 
         private enum SendPrimResult
         {
@@ -642,14 +645,24 @@ namespace OpenSim
 
         private SendPrimResult TrySendPrim(UUID objectId, UUID userId, out string message)
         {
+            return TrySendPrim(objectId, userId, false, out message);
+        }
+
+        private SendPrimResult TrySendPrim(UUID objectId, UUID userId, bool searchLocallyOnly, out string message)
+        {
             foreach (Scene scene in SceneManager.Scenes)
             {
                 if (scene.TryGetSceneObjectGroup(objectId, out SceneObjectGroup sog) && sog is not null)
                     return TrySendPrim(scene, sog, userId, out message);
             }
 
-            message = $"Object {objectId} not found.";
-            return SendPrimResult.ObjectNotFound;
+            if (searchLocallyOnly)
+            {
+                message = $"Object {objectId} not found.";
+                return SendPrimResult.ObjectNotFound;
+            }
+
+            return TrySendPrimRemotely(objectId, userId, out message);
         }
 
         private SendPrimResult TrySendPrim(Scene scene, SceneObjectGroup sog, UUID userId, out string message)
@@ -673,6 +686,9 @@ namespace OpenSim
                 message = "Asset service is unavailable.";
                 return SendPrimResult.AssetUnavailable;
             }
+
+            using ScenePermissions.PermissionBypassScope bypass = scene.Permissions.EnterBypassScope(true);
+            bool bypassingPermissions = bypass.IsBypassing;
 
             try
             {
@@ -715,6 +731,8 @@ namespace OpenSim
                 uint permsBase = (uint)(PermissionMask.Move | PermissionMask.Copy | PermissionMask.Transfer | PermissionMask.Modify);
                 permsBase &= rootPart.BaseMask;
                 permsBase |= (uint)PermissionMask.Move;
+                if ((rootPart.BaseMask & (uint)PermissionMask.Export) != 0)
+                    permsBase |= (uint)PermissionMask.Export;
 
                 InventoryItemBase item = new InventoryItemBase
                 {
@@ -735,7 +753,16 @@ namespace OpenSim
                     Flags = 0
                 };
 
-                if (Permissions.PropagatePermissions() && rootPart.OwnerID != userId)
+                if (bypassingPermissions)
+                {
+                    uint fullPermissions = (uint)(PermissionMask.All | PermissionMask.Export);
+                    item.BasePermissions = fullPermissions;
+                    item.CurrentPermissions = fullPermissions;
+                    item.NextPermissions = fullPermissions;
+                    item.EveryOnePermissions = 0;
+                    item.GroupPermissions = 0;
+                }
+                else if (scene.Permissions.PropagatePermissions() && rootPart.OwnerID != userId)
                 {
                     item.BasePermissions = permsBase & rootPart.NextOwnerMask;
                     item.CurrentPermissions = permsBase & rootPart.NextOwnerMask;
@@ -776,6 +803,189 @@ namespace OpenSim
                 message = "Internal error while sending object.";
                 return SendPrimResult.Exception;
             }
+        }
+
+        private SendPrimResult TrySendPrimRemotely(UUID objectId, UUID userId, out string message)
+        {
+            List<Scene> localScenes = SceneManager.Scenes;
+            if (localScenes.Count == 0)
+            {
+                message = $"Object {objectId} not found.";
+                return SendPrimResult.ObjectNotFound;
+            }
+
+            HashSet<UUID> localRegionIds = new HashSet<UUID>(localScenes.Select(s => s.RegionInfo.RegionID));
+            HashSet<UUID> attemptedRegions = new HashSet<UUID>();
+            string lastNotFoundMessage = null;
+
+            foreach (Scene scene in localScenes)
+            {
+                IGridService gridService = scene.GridService;
+                if (gridService is null)
+                    continue;
+
+                List<GridRegion> regions;
+                try
+                {
+                    regions = gridService.GetRegionRange(scene.RegionInfo.ScopeID, int.MinValue, int.MaxValue, int.MinValue, int.MaxValue);
+                }
+                catch (Exception ex)
+                {
+                    m_log.WarnFormat("[OPENSIM]: Failed to query grid service for regions: {0}", ex.Message);
+                    continue;
+                }
+
+                if (regions is null || regions.Count == 0)
+                    continue;
+
+                foreach (GridRegion region in regions)
+                {
+                    if (region is null || region.RegionID == UUID.Zero)
+                        continue;
+
+                    if (!attemptedRegions.Add(region.RegionID))
+                        continue;
+
+                    if (localRegionIds.Contains(region.RegionID))
+                        continue;
+
+                    if (!TryBuildRemoteSendUri(region, objectId, userId, out Uri sendUri))
+                        continue;
+
+                    SendPrimResult remoteResult = TryForwardSendRequest(region, sendUri, out string remoteMessage);
+
+                    if (remoteResult == SendPrimResult.Success)
+                    {
+                        message = remoteMessage;
+                        return SendPrimResult.Success;
+                    }
+
+                    if (remoteResult == SendPrimResult.ObjectNotFound || remoteResult == SendPrimResult.UserNotFound)
+                    {
+                        if (!string.IsNullOrEmpty(remoteMessage))
+                            lastNotFoundMessage = remoteMessage;
+                        continue;
+                    }
+
+                    message = remoteMessage;
+                    return remoteResult;
+                }
+            }
+
+            message = lastNotFoundMessage ?? $"Object {objectId} not found.";
+            return SendPrimResult.ObjectNotFound;
+        }
+
+        private static bool TryBuildRemoteSendUri(GridRegion region, UUID objectId, UUID userId, out Uri sendUri)
+        {
+            sendUri = null;
+
+            string baseUrl = region.ServerURI;
+
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                if (string.IsNullOrWhiteSpace(region.ExternalHostName) || region.HttpPort == 0)
+                    return false;
+
+                baseUrl = $"http://{region.ExternalHostName}:{region.HttpPort}";
+            }
+
+            if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri baseUri))
+                return false;
+
+            UriBuilder builder = new UriBuilder(baseUri);
+            string path = builder.Path;
+
+            if (string.IsNullOrEmpty(path) || path == "/")
+                builder.Path = "send";
+            else
+                builder.Path = path.TrimEnd('/') + "/send";
+
+            string query = $"oid={Uri.EscapeDataString(objectId.ToString())}&uid={Uri.EscapeDataString(userId.ToString())}&pass={Uri.EscapeDataString(SendPrimPassword)}&forwarded=1";
+            builder.Query = query;
+
+            sendUri = builder.Uri;
+            return true;
+        }
+
+        private SendPrimResult TryForwardSendRequest(GridRegion region, Uri sendUri, out string message)
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(sendUri);
+                request.Method = "GET";
+                request.Timeout = 10000;
+                request.ReadWriteTimeout = 10000;
+                request.UserAgent = "OpenSimSendPrim/1.0";
+
+                using HttpWebResponse response = (HttpWebResponse)request.GetResponse();
+                using Stream responseStream = response.GetResponseStream() ?? Stream.Null;
+                using StreamReader reader = new StreamReader(responseStream);
+                message = reader.ReadToEnd();
+
+                if (string.IsNullOrEmpty(message))
+                    message = $"Remote region {region.RegionName} responded with status {response.StatusCode}.";
+
+                if (response.StatusCode == HttpStatusCode.OK)
+                    return SendPrimResult.Success;
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                    return MapNotFoundResult(message);
+
+                if (response.StatusCode == HttpStatusCode.ServiceUnavailable)
+                    return MapUnavailableResult(message);
+
+                return SendPrimResult.Exception;
+            }
+            catch (WebException ex)
+            {
+                if (ex.Response is HttpWebResponse errorResponse)
+                {
+                    using Stream errorStream = errorResponse.GetResponseStream() ?? Stream.Null;
+                    using StreamReader reader = new StreamReader(errorStream);
+                    message = reader.ReadToEnd();
+
+                    if (string.IsNullOrEmpty(message))
+                        message = ex.Message;
+
+                    if (errorResponse.StatusCode == HttpStatusCode.NotFound)
+                        return MapNotFoundResult(message);
+
+                    if (errorResponse.StatusCode == HttpStatusCode.ServiceUnavailable)
+                        return MapUnavailableResult(message);
+
+                    if (errorResponse.StatusCode == HttpStatusCode.Forbidden)
+                        return SendPrimResult.Exception;
+
+                    return SendPrimResult.Exception;
+                }
+
+                m_log.WarnFormat("[OPENSIM]: Unable to contact remote region {0} for prim {1}: {2}", region.RegionName, sendUri, ex.Message);
+                message = "Unable to contact remote region.";
+                return SendPrimResult.ObjectNotFound;
+            }
+            catch (Exception ex)
+            {
+                m_log.WarnFormat("[OPENSIM]: Error while contacting remote region {0} for prim {1}: {2}", region.RegionName, sendUri, ex.Message);
+                message = ex.Message;
+                return SendPrimResult.Exception;
+            }
+        }
+
+        private static SendPrimResult MapNotFoundResult(string message)
+        {
+            if (!string.IsNullOrEmpty(message) && message.IndexOf("user", StringComparison.OrdinalIgnoreCase) >= 0)
+                return SendPrimResult.UserNotFound;
+
+            return SendPrimResult.ObjectNotFound;
+        }
+
+        private static SendPrimResult MapUnavailableResult(string message)
+        {
+            if (!string.IsNullOrEmpty(message) && message.IndexOf("inventory", StringComparison.OrdinalIgnoreCase) >= 0)
+                return SendPrimResult.InventoryUnavailable;
+
+            return SendPrimResult.AssetUnavailable;
         }
 
         /// <summary>
@@ -1706,7 +1916,6 @@ namespace OpenSim
         private class SendPrimHandler : SimpleStreamHandler
         {
             private readonly OpenSim m_application;
-            private const string Password = "martyadmin";
 
             public SendPrimHandler(OpenSim application)
                 : base("/send")
@@ -1728,7 +1937,7 @@ namespace OpenSim
 
                 Dictionary<string, string> query = httpRequest.QueryAsDictionary;
 
-                if (!query.TryGetValue("pass", out string pass) || pass != Password)
+                if (!query.TryGetValue("pass", out string pass) || pass != SendPrimPassword)
                 {
                     httpResponse.StatusCode = (int)HttpStatusCode.Forbidden;
                     httpResponse.RawBuffer = Util.UTF8NBGetbytes("Invalid password.");
@@ -1749,7 +1958,9 @@ namespace OpenSim
                     return;
                 }
 
-                SendPrimResult result = m_application.TrySendPrim(objectId, userId, out string message);
+                bool forwarded = query.TryGetValue("forwarded", out string forwardedValue) && Util.StringToBool(forwardedValue);
+
+                SendPrimResult result = m_application.TrySendPrim(objectId, userId, forwarded, out string message);
 
                 switch (result)
                 {
