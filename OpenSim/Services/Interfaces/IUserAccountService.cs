@@ -70,6 +70,7 @@ namespace OpenSim.Services.Interfaces
             Email = email;
             ServiceURLs = new Dictionary<string, object>();
             Created = Util.UnixTimeSinceEpoch();
+            TOSDate = 0;
         }
 
         public UserAccount(UUID scopeID, UUID principalID, string firstName, string lastName, string email)
@@ -81,6 +82,7 @@ namespace OpenSim.Services.Interfaces
             Email = email;
             ServiceURLs = new Dictionary<string, object>();
             Created = Util.UnixTimeSinceEpoch();
+            TOSDate = 0;
         }
 
         public string FirstName;
@@ -97,6 +99,8 @@ namespace OpenSim.Services.Interfaces
         public Dictionary<string, object> ServiceURLs;
 
         public int Created;
+
+        public int TOSDate;
 
         public string DisplayName;
         public uint NameChanged;
@@ -126,6 +130,7 @@ namespace OpenSim.Services.Interfaces
 
         public UserAccount(Dictionary<string, object> kvp)
         {
+            TOSDate = 0;
             if (kvp.ContainsKey("FirstName"))
                 FirstName = kvp["FirstName"].ToString();
             if (kvp.ContainsKey("LastName"))
@@ -146,6 +151,8 @@ namespace OpenSim.Services.Interfaces
                 UserCountry = kvp["UserCountry"].ToString();
             if (kvp.ContainsKey("LocalToGrid"))
                 Boolean.TryParse(kvp["LocalToGrid"].ToString(), out LocalToGrid);
+            if (kvp.ContainsKey("TOSDate") && kvp["TOSDate"] != null)
+                Int32.TryParse(kvp["TOSDate"].ToString(), out TOSDate);
             if (kvp.ContainsKey("DisplayName"))
                 DisplayName = kvp["DisplayName"].ToString();
             if (kvp.ContainsKey("NameChanged"))
@@ -185,6 +192,7 @@ namespace OpenSim.Services.Interfaces
             result["UserTitle"] = UserTitle;
             result["UserCountry"] = UserCountry;
             result["LocalToGrid"] = LocalToGrid.ToString();
+            result["TOSDate"] = TOSDate;
             result["DisplayName"] = DisplayName;
             result["NameChanged"] = NameChanged.ToString();
 

@@ -26,4 +26,6 @@ public partial class UserAccount
     public string UserTitle { get; set; }
 
     public int Active { get; set; }
+
+    public int? TosDate { get; set; }
 }

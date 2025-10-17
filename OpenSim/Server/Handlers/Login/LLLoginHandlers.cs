@@ -132,8 +132,12 @@ namespace OpenSim.Server.Handlers.Login
 
                     //m_log.InfoFormat("[LOGIN]: XMLRPC Login Requested for {0} {1}, starting in {2}, using {3}", first, last, startLocation, clientVersion);
 
+                    bool agree_to_tos = false;
+                    if (requestData.Contains("agree_to_tos") && requestData["agree_to_tos"] != null)
+                        agree_to_tos = requestData["agree_to_tos"].ToString() == "1";
+
                     LoginResponse reply = null;
-                    reply = m_LocalService.Login(first, last, passwd, startLocation, scopeID, clientVersion, channel, mac, id0, remoteClient);
+                    reply = m_LocalService.Login(first, last, passwd, startLocation, scopeID, clientVersion, channel, mac, id0, remoteClient, agree_to_tos);
 
                     XmlRpcResponse response = new XmlRpcResponse();
                     response.Value = reply.ToHashtable();
@@ -218,10 +222,14 @@ namespace OpenSim.Server.Handlers.Login
 
                     m_log.Info("[LOGIN]: LLSD Login Requested for: '" + first + "' '" + last + "' / " + startLocation);
 
+                    bool agreeToTos = false;
+                    if (map.TryGetValue("agree_to_tos", out otmp))
+                        agreeToTos = otmp.AsBoolean();
+
                     LoginResponse reply = null;
                     reply = m_LocalService.Login(first, last, passwd, startLocation, scopeID,
                         map["version"].AsString(), map["channel"].AsString(), map["mac"].AsString(),
-                        map["id0"].AsString(), remoteClient);
+                        map["id0"].AsString(), remoteClient, agreeToTos);
                     return reply.ToOSDMap();
                 }
             }
@@ -261,9 +269,13 @@ namespace OpenSim.Server.Handlers.Login
                                            UUID scope = UUID.Zero;
                                            IPEndPoint endPoint =
                                                (sender as WebSocketHttpServerHandler).GetRemoteIPEndpoint();
+                                           bool agreeToTos = false;
+                                           if (req.TryGetValue("agree_to_tos", out OSD atmp))
+                                               agreeToTos = atmp.AsBoolean();
+
                                            LoginResponse reply = null;
                                            reply = m_LocalService.Login(first, last, passwd, start, scope, version,
-                                                                        channel, mac, id0, endPoint);
+                                                                        channel, mac, id0, endPoint, agreeToTos);
                                            sock.SendMessage(OSDParser.SerializeJsonString(reply.ToOSDMap()));
 
                                        }
