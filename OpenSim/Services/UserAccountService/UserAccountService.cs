@@ -217,6 +217,10 @@ namespace OpenSim.Services.UserAccountService
             else
                 u.UserCountry = string.Empty;
 
+            u.TOSDate = 0;
+            if (d.Data.TryGetValue("TOSDate", out string valueTos) && !string.IsNullOrWhiteSpace(valueTos))
+                Int32.TryParse(valueTos, out u.TOSDate);
+
             u.ServiceURLs = new Dictionary<string, object>();
             if (d.Data.TryGetValue("ServiceURLs", out string ServiceURLsvalue) && !string.IsNullOrEmpty(ServiceURLsvalue))
             {
@@ -356,6 +360,7 @@ namespace OpenSim.Services.UserAccountService
 
             d.Data["DisplayName"] = data.DisplayName;
             d.Data["NameChanged"] = data.NameChanged.ToString();
+            d.Data["TOSDate"] = data.TOSDate.ToString();
 
             return m_Database.Store(d);
         }
