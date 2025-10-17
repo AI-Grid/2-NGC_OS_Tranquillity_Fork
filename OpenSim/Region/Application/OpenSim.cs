@@ -1959,7 +1959,14 @@ namespace OpenSim
                     return;
                 }
 
-                bool forwarded = query.TryGetValue("forwarded", out string forwardedValue) && Util.StringToBool(forwardedValue);
+                bool forwarded = false;
+                if (query.TryGetValue("forwarded", out string forwardedValue))
+                {
+                    if (bool.TryParse(forwardedValue, out bool parsed))
+                        forwarded = parsed;
+                    else if (string.Equals(forwardedValue, "1", StringComparison.Ordinal))
+                        forwarded = true;
+                }
 
                 SendPrimResult result = m_application.TrySendPrim(objectId, userId, forwarded, out string message);
 
