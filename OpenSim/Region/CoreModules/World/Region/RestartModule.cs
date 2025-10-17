@@ -202,7 +202,7 @@ namespace OpenSim.Region.CoreModules.World.Region
                 payload.Add("SECONDS", currentAlert);
                 byte[] extra = Util.StringToBytes256(OSDParser.SerializeLLSDXmlString(payload));
 
-                m_Scene.ForEachRootClient(client => client.SendAlertMessage(restartNotice, restartNotice, extra));
+                m_Scene.ForEachRootClient(client => SendAlertWithPayload(client, restartNotice, restartNotice, extra));
                 m_log.InfoFormat("[RESTART MODULE]: {0} will restart in {1} seconds", m_Scene.Name, currentAlert);
 
                 if (m_DialogModule != null && !string.IsNullOrEmpty(m_Message))
@@ -373,6 +373,30 @@ namespace OpenSim.Region.CoreModules.World.Region
             catch (Exception)
             {
             }
+        }
+
+        private static void SendAlertWithPayload(IClientAPI client, string message, string info, byte[] extraParams)
+        {
+            if (client == null)
+                return;
+
+            try
+            {
+                MethodInfo payloadMethod = client.GetType().GetMethod(
+                    nameof(IClientAPI.SendAlertMessage), new[] { typeof(string), typeof(string), typeof(byte[]) });
+
+                if (payloadMethod != null)
+                {
+                    payloadMethod.Invoke(client, new object[] { message, info, extraParams });
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                m_log.WarnFormat("[RESTART MODULE]: Failed to send restart alert payload via reflection: {0}", ex);
+            }
+
+            client.SendAlertMessage(message, info);
         }
 
         int CountAgents()
