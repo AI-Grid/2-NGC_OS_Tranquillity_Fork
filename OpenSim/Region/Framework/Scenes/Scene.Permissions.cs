@@ -231,6 +231,49 @@ namespace OpenSim.Region.Framework.Scenes
             return true;
         }
 
+        public PermissionBypassScope EnterBypassScope()
+        {
+            return EnterBypassScope(true);
+        }
+
+        public PermissionBypassScope EnterBypassScope(bool bypass)
+        {
+            return new PermissionBypassScope(this, bypass);
+        }
+
+        public readonly struct PermissionBypassScope : IDisposable
+        {
+            private readonly ScenePermissions m_permissions;
+            private readonly bool m_originalState;
+            private readonly bool m_changed;
+
+            internal PermissionBypassScope(ScenePermissions permissions, bool bypass)
+            {
+                m_permissions = permissions;
+                m_originalState = permissions.BypassPermissions();
+
+                if (m_originalState == bypass)
+                {
+                    m_changed = false;
+                }
+                else
+                {
+                    m_changed = true;
+                    permissions.SetBypassPermissions(bypass);
+                }
+            }
+
+            public bool WasBypassing => m_originalState;
+
+            public bool IsBypassing => m_permissions.BypassPermissions();
+
+            public void Dispose()
+            {
+                if (m_changed)
+                    m_permissions.SetBypassPermissions(m_originalState);
+            }
+        }
+
         public bool PropagatePermissions()
         {
             PropagatePermissionsHandler handler = OnPropagatePermissions;
