@@ -640,7 +640,7 @@ namespace OpenSim
                 MainConsole.Instance.Output($"Failed to send prim: {message}");
         }
 
-        private SendPrimResult TrySendPrim(UUID objectId, UUID userId, out string message)
+        internal SendPrimResult TrySendPrim(UUID objectId, UUID userId, out string message)
         {
             foreach (Scene scene in SceneManager.Scenes)
             {
@@ -697,42 +697,74 @@ namespace OpenSim
                     return SendPrimResult.AssetStoreFailed;
                 }
 
+                if (UUID.TryParse(storedId, out UUID storedAssetId))
+                {
+                    assetId = storedAssetId;
+                    asset.FullID = storedAssetId;
+                }
+                else
+                {
+                    assetId = asset.FullID;
+                }
+
                 InventoryFolderBase folder = scene.InventoryService.GetFolderForType(userId, FolderType.Object);
                 UUID folderId = folder is not null ? folder.ID : UUID.Zero;
+
+                SceneObjectPart rootPart = sog.RootPart;
+
+                uint permsBase = (uint)(PermissionMask.Move | PermissionMask.Copy | PermissionMask.Transfer | PermissionMask.Modify);
+                permsBase &= rootPart.BaseMask;
+                permsBase |= (uint)PermissionMask.Move;
 
                 InventoryItemBase item = new InventoryItemBase
                 {
                     ID = UUID.Random(),
-                    AssetID = asset.FullID,
+                    AssetID = assetId,
                     AssetType = (int)AssetType.Object,
                     InvType = (int)InventoryType.Object,
                     Owner = userId,
                     Folder = folderId,
                     CreationDate = Util.UnixTimeSinceEpoch(),
-                    CreatorId = sog.RootPart.CreatorID.ToString(),
-                    CreatorData = sog.RootPart.CreatorData,
-                    Name = sog.RootPart.Name,
-                    Description = sog.RootPart.Description,
-                    CurrentPermissions = sog.RootPart.OwnerMask,
-                    BasePermissions = sog.RootPart.BaseMask,
-                    NextPermissions = sog.RootPart.NextOwnerMask,
-                    EveryOnePermissions = sog.RootPart.EveryoneMask,
-                    GroupPermissions = sog.RootPart.GroupMask,
+                    CreatorId = rootPart.CreatorID.ToString(),
+                    CreatorData = rootPart.CreatorData,
+                    Name = rootPart.Name,
+                    Description = rootPart.Description,
+                    SalePrice = rootPart.SalePrice,
+                    SaleType = rootPart.ObjectSaleType,
                     GroupID = sog.GroupID,
-                    SalePrice = sog.RootPart.SalePrice,
-                    SaleType = sog.RootPart.ObjectSaleType,
                     Flags = 0
                 };
 
-                item.CurrentPermissions |= (uint)Framework.PermissionMask.Move;
-                item.BasePermissions |= (uint)Framework.PermissionMask.Move;
-                item.NextPermissions |= (uint)Framework.PermissionMask.Move;
+                if (Permissions.PropagatePermissions() && rootPart.OwnerID != userId)
+                {
+                    item.BasePermissions = permsBase & rootPart.NextOwnerMask;
+                    item.CurrentPermissions = permsBase & rootPart.NextOwnerMask;
+                    item.NextPermissions = permsBase & rootPart.NextOwnerMask;
+                    item.EveryOnePermissions = permsBase & rootPart.EveryoneMask & rootPart.NextOwnerMask;
+                    item.GroupPermissions = permsBase & rootPart.GroupMask & rootPart.NextOwnerMask;
+                }
+                else
+                {
+                    item.BasePermissions = permsBase;
+                    item.CurrentPermissions = permsBase & rootPart.OwnerMask;
+                    item.NextPermissions = permsBase & rootPart.NextOwnerMask;
+                    item.EveryOnePermissions = permsBase & rootPart.EveryoneMask;
+                    item.GroupPermissions = permsBase & rootPart.GroupMask;
+                }
+
+                item.CurrentPermissions |= (uint)PermissionMask.Move;
+                item.BasePermissions |= (uint)PermissionMask.Move;
+                item.NextPermissions |= (uint)PermissionMask.Move;
 
                 if (!scene.AddInventoryItem(item))
                 {
                     message = $"Unable to add '{item.Name}' to user {userId}'s inventory.";
                     return SendPrimResult.InventoryAddFailed;
                 }
+
+                ScenePresence recipientPresence = scene.GetScenePresence(userId);
+                if (recipientPresence is not null && recipientPresence.ControllingClient is not null)
+                    recipientPresence.ControllingClient.SendInventoryItemCreateUpdate(item, 0);
 
                 message = $"Sent '{item.Name}' to {account.Name} ({account.PrincipalID}).";
                 m_log.InfoFormat("[OPENSIM]: Sent prim {0} to {1} from region {2}", sog.UUID, userId, scene.RegionInfo.RegionName);
