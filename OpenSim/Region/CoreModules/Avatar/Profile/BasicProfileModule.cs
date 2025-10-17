@@ -43,7 +43,7 @@ using OpenSim.Services.Interfaces;
 namespace OpenSim.Region.CoreModules.Avatar.Profile
 {
     [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "BasicProfileModule")]
-    public class BasicProfileModule : IProfileModule, ISharedRegionModule
+    public class BasicProfileModule : IProfileModule, IAvatarBadgeModule, ISharedRegionModule
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
@@ -77,6 +77,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Profile
                     // Hook up events
                     scene.EventManager.OnNewClient += OnNewClient;
                     scene.RegisterModuleInterface<IProfileModule>(this);
+                    scene.RegisterModuleInterface<IAvatarBadgeModule>(this);
                 }
             }
         }
@@ -168,12 +169,22 @@ namespace OpenSim.Region.CoreModules.Avatar.Profile
                                 "M/d/yyyy", CultureInfo.InvariantCulture),
                         membershipType, firstLifeAboutText,
                         (uint)(0 & 0xff),
-                        firstLifeImage, image, profileUrl, partner);
+                        firstLifeImage, image, profileUrl, partner, string.Empty);
 
             //Viewer expects interest data when it asks for properties.
             remoteClient.SendAvatarInterestsReply(avatarID, wantMask, wantText,
                                                     skillsMask, skillsText, languages);
         }
 
+        public bool TrySetCustomerType(UUID requestingAgent, UUID targetAgent, string customerType, out string message)
+        {
+            message = "Badge updates are not supported by the basic profile module.";
+            return false;
+        }
+
+        public string GetCustomerType(UUID avatarId)
+        {
+            return string.Empty;
+        }
     }
 }

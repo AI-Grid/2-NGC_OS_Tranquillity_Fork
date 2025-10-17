@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS userprofile (
   profileImage varchar(36) NOT NULL,
   profileAboutText text NOT NULL,
   profileFirstImage varchar(36) NOT NULL,
-  profileFirstText text NOT NULL
+  profileFirstText text NOT NULL,
+  profileCustomerType text NOT NULL DEFAULT ''
 );
 
 commit;
@@ -90,7 +91,7 @@ commit;
 
 
 :VERSION 3         # -------------------------------
- 
+
 begin;
 CREATE TABLE IF NOT EXISTS usersettings (
   useruuid char(36) NOT NULL,
@@ -99,4 +100,12 @@ CREATE TABLE IF NOT EXISTS usersettings (
   email varchar(254) NOT NULL,
   PRIMARY KEY (useruuid)
 )
+commit;
+
+:VERSION 4         # -------------------------------
+
+begin;
+
+ALTER TABLE userprofile ADD COLUMN profileCustomerType text NOT NULL DEFAULT '';
+
 commit;

@@ -67,6 +67,7 @@ namespace OpenSim.Framework
         public string AboutText = string.Empty;
         public UUID FirstLifeImageId;
         public string FirstLifeText = string.Empty;
+        public string CustomerType = string.Empty;
     }
 
     public class UserProfilePick

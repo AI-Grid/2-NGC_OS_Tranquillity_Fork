@@ -589,6 +589,15 @@ namespace OpenSim.Data.SQLite
                             props.SkillsMask = (int)reader["profileSkillsMask"];
                             props.SkillsText = (string)reader["profileSkillsText"];
                             props.Language = (string)reader["profileLanguages"];
+                            try
+                            {
+                                int idx = reader.GetOrdinal("profileCustomerType");
+                                props.CustomerType = reader.IsDBNull(idx) ? string.Empty : (string)reader["profileCustomerType"];
+                            }
+                            catch (IndexOutOfRangeException)
+                            {
+                                props.CustomerType = string.Empty;
+                            }
                         }
                         else
                         {
@@ -603,6 +612,7 @@ namespace OpenSim.Data.SQLite
                             props.SkillsMask = 0;
                             props.SkillsText = string.Empty;
                             props.Language = string.Empty;
+                            props.CustomerType = string.Empty;
                             props.PublishProfile = false;
                             props.PublishMature = false;
 
@@ -620,7 +630,8 @@ namespace OpenSim.Data.SQLite
                             query += "profileImage, ";
                             query += "profileAboutText, ";
                             query += "profileFirstImage, ";
-                            query += "profileFirstText) VALUES (";
+                            query += "profileFirstText, ";
+                            query += "profileCustomerType) VALUES (";
                             query += ":userId, ";
                             query += ":profilePartner, ";
                             query += ":profileAllowPublish, ";
@@ -634,7 +645,8 @@ namespace OpenSim.Data.SQLite
                             query += ":profileImage, ";
                             query += ":profileAboutText, ";
                             query += ":profileFirstImage, ";
-                            query += ":profileFirstText)";
+                            query += ":profileFirstText, ";
+                            query += ":profileCustomerType)";
 
                             using (SQLiteCommand put = (SQLiteCommand)m_connection.CreateCommand())
                             {
@@ -653,6 +665,7 @@ namespace OpenSim.Data.SQLite
                                 put.Parameters.AddWithValue(":profileAboutText", props.AboutText);
                                 put.Parameters.AddWithValue(":profileFirstImage", props.FirstLifeImageId.ToString());
                                 put.Parameters.AddWithValue(":profileFirstText", props.FirstLifeText);
+                                put.Parameters.AddWithValue(":profileCustomerType", props.CustomerType ?? string.Empty);
 
                                 put.ExecuteNonQuery();
                             }
@@ -670,7 +683,8 @@ namespace OpenSim.Data.SQLite
             query += "profileImage=:image, ";
             query += "profileAboutText=:abouttext,";
             query += "profileFirstImage=:firstlifeimage,";
-            query += "profileFirstText=:firstlifetext ";
+            query += "profileFirstText=:firstlifetext, ";
+            query += "profileCustomerType=:customerType ";
             query += "WHERE useruuid=:uuid";
 
             try
@@ -683,6 +697,7 @@ namespace OpenSim.Data.SQLite
                     cmd.Parameters.AddWithValue(":abouttext", props.AboutText);
                     cmd.Parameters.AddWithValue(":firstlifeimage", props.FirstLifeImageId.ToString());
                     cmd.Parameters.AddWithValue(":firstlifetext", props.FirstLifeText);
+                    cmd.Parameters.AddWithValue(":customerType", props.CustomerType ?? string.Empty);
                     cmd.Parameters.AddWithValue(":uuid", props.UserId.ToString());
 
                     cmd.ExecuteNonQuery();
