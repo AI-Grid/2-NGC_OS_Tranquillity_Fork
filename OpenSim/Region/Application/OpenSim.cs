@@ -724,9 +724,9 @@ namespace OpenSim
                     Flags = 0
                 };
 
-                item.CurrentPermissions |= (uint)PermissionMask.Move;
-                item.BasePermissions |= (uint)PermissionMask.Move;
-                item.NextPermissions |= (uint)PermissionMask.Move;
+                item.CurrentPermissions |= (uint)Framework.PermissionMask.Move;
+                item.BasePermissions |= (uint)Framework.PermissionMask.Move;
+                item.NextPermissions |= (uint)Framework.PermissionMask.Move;
 
                 if (!scene.AddInventoryItem(item))
                 {
